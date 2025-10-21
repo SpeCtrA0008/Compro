@@ -1,0 +1,14 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+/build/
+# IntelliJ
+.idea/
+# VS Code
+.vscode/
+# Mac
+.DS_Store
+# Generated
+android/**/local.properties

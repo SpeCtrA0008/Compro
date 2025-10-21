@@ -1,0 +1,19 @@
+name: flutter_framework
+description: A minimal Flutter framework scaffold created by assistant
+publish_to: 'none'
+version: 0.0.1
+# environment should be flexible; user can adjust SDK version
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intl: ^0.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
