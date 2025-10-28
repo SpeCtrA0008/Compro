@@ -1,48 +1,50 @@
-import 'dart:math';
+import 'package:firebase_database/firebase_database.dart';
 import '../models/sensor_reading.dart';
 
 class SensorService {
-  // Simulasi data sensor - nanti bisa diganti dengan API call ke IoT device
-  static List<SensorReading> _mockData = [];
+  // Firebase Realtime Database reference
+  static final DatabaseReference _database = FirebaseDatabase.instance.ref();
+  static final DatabaseReference _sensorDataRef = _database.child('sensorData');
 
-  static void _generateMockData() {
-    if (_mockData.isNotEmpty) return;
-
-    final random = Random();
-    final now = DateTime.now();
-
-    // Generate 50 data points untuk demo
-    for (int i = 0; i < 50; i++) {
-      _mockData.add(SensorReading(
-        ph: 6.0 + random.nextDouble() * 2.5, // pH 6.0 - 8.5
-        suhu: 20.0 + random.nextDouble() * 15.0, // Suhu 20-35°C
-        mineral: 50.0 + random.nextDouble() * 200.0, // Mineral 50-250 ppm
-        tanggal: now.subtract(Duration(
-          days: random.nextInt(30),
-          hours: random.nextInt(24),
-          minutes: random.nextInt(60),
-        )),
-      ));
-    }
-
-    // Sort by date descending (newest first)
-    _mockData.sort((a, b) => b.tanggal.compareTo(a.tanggal));
-  }
-
-  /// Fetch all sensor readings
+  /// Fetch all sensor readings from Firebase
   static Future<List<SensorReading>> getAllReadings() async {
-    _generateMockData();
-    // Simulasi network delay
-    await Future.delayed(const Duration(milliseconds: 500));
-    return List.from(_mockData);
+    try {
+      final snapshot = await _sensorDataRef.get();
+      
+      if (!snapshot.exists) {
+        return [];
+      }
+
+      final List<SensorReading> readings = [];
+      final data = snapshot.value as Map<dynamic, dynamic>?;
+      
+      if (data != null) {
+        data.forEach((key, value) {
+          try {
+            final reading = _parseSensorData(value);
+            if (reading != null) {
+              readings.add(reading);
+            }
+          } catch (e) {
+            print('Error parsing reading $key: $e');
+          }
+        });
+      }
+
+      // Sort by date descending (newest first)
+      readings.sort((a, b) => b.tanggal.compareTo(a.tanggal));
+      return readings;
+    } catch (e) {
+      print('Error fetching readings: $e');
+      return [];
+    }
   }
 
   /// Filter readings by date
   static Future<List<SensorReading>> getReadingsByDate(DateTime date) async {
-    _generateMockData();
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    return _mockData.where((reading) {
+    final allReadings = await getAllReadings();
+    
+    return allReadings.where((reading) {
       return reading.tanggal.year == date.year &&
           reading.tanggal.month == date.month &&
           reading.tanggal.day == date.day;
@@ -54,14 +56,13 @@ class SensorService {
     DateTime? startDate,
     DateTime? endDate,
   ) async {
-    _generateMockData();
-    await Future.delayed(const Duration(milliseconds: 500));
+    final allReadings = await getAllReadings();
 
     if (startDate == null && endDate == null) {
-      return List.from(_mockData);
+      return allReadings;
     }
 
-    return _mockData.where((reading) {
+    return allReadings.where((reading) {
       if (startDate != null && reading.tanggal.isBefore(startDate)) {
         return false;
       }
@@ -70,5 +71,66 @@ class SensorService {
       }
       return true;
     }).toList();
+  }
+
+  /// Stream real-time updates from Firebase
+  static Stream<List<SensorReading>> streamReadings() {
+    return _sensorDataRef.onValue.map((event) {
+      final List<SensorReading> readings = [];
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      
+      if (data != null) {
+        data.forEach((key, value) {
+          try {
+            final reading = _parseSensorData(value);
+            if (reading != null) {
+              readings.add(reading);
+            }
+          } catch (e) {
+            print('Error parsing reading $key: $e');
+          }
+        });
+      }
+
+      readings.sort((a, b) => b.tanggal.compareTo(a.tanggal));
+      return readings;
+    });
+  }
+
+  /// Parse sensor data from Firebase format
+  static SensorReading? _parseSensorData(dynamic data) {
+    if (data == null) return null;
+
+    try {
+      final map = data as Map<dynamic, dynamic>;
+      
+      // Parse timestamp - support multiple formats
+      DateTime timestamp;
+      if (map['timestamp'] != null) {
+        timestamp = DateTime.fromMillisecondsSinceEpoch(
+          (map['timestamp'] as num).toInt(),
+        );
+      } else if (map['tanggal'] != null) {
+        timestamp = DateTime.parse(map['tanggal'].toString());
+      } else {
+        timestamp = DateTime.now();
+      }
+
+      return SensorReading(
+        ph: (map['ph'] ?? map['pH'] ?? 7.0) is num 
+            ? (map['ph'] ?? map['pH'] ?? 7.0).toDouble() 
+            : double.tryParse(map['ph']?.toString() ?? '7.0') ?? 7.0,
+        suhu: (map['suhu'] ?? map['temperature'] ?? 25.0) is num
+            ? (map['suhu'] ?? map['temperature'] ?? 25.0).toDouble()
+            : double.tryParse(map['suhu']?.toString() ?? '25.0') ?? 25.0,
+        mineral: (map['mineral'] ?? map['tds'] ?? 0.0) is num
+            ? (map['mineral'] ?? map['tds'] ?? 0.0).toDouble()
+            : double.tryParse(map['mineral']?.toString() ?? '0.0') ?? 0.0,
+        tanggal: timestamp,
+      );
+    } catch (e) {
+      print('Error in _parseSensorData: $e');
+      return null;
+    }
   }
 }
